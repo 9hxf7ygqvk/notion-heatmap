@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Habit Tracker</title>
+<style>
+  :root {
+    --ink: #1C1B1A;
+    --ink-soft: #8A8782;
+    --cell-empty: #ECEAE5;
+    --cell-fill: #2F5D50;
+    --border: #E3E0D9;
+    --accent: #2F5D50;
+    --track: #ECEAE5;
+    --widget-bg: transparent;
+    --widget-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: transparent !important;
+    font-family: var(--widget-font);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 420px;
+    margin: 0 auto;
+    padding: 16px 18px 18px;
+    background: var(--widget-bg);
+    border-radius: var(--widget-radius, 16px);
+  }
+
+  .top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 4px;
+    gap: 10px;
+  }
+
+  #habitName {
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .gear {
+    width: 26px;
+    height: 26px;
+    flex-shrink: 0;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    color: var(--ink-soft);
+    opacity: 0.55;
+    transition: opacity 0.15s ease, background 0.15s ease;
+  }
+  .gear:hover { opacity: 1; background: var(--border); }
+  .gear svg { width: 15px; height: 15px; }
+
+  .month-label {
+    font-size: 11px;
+    color: var(--ink-soft);
+    margin-bottom: 12px;
+  }
+
+  /* Calendar grid */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 5px;
+    margin-bottom: 16px;
+  }
+
+  .cell {
+    aspect-ratio: 1;
+    border-radius: 7px;
+    background: var(--cell-empty);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--ink-soft);
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.12s ease, color 0.12s ease, transform 0.08s ease;
+    font-variant-numeric: tabular-nums;
+  }
+  .cell:hover { transform: scale(1.06); }
+  .cell.filled {
+    background: var(--cell-fill);
+    color: rgba(255,255,255,0.95);
+  }
+  .cell.today {
+    font-weight: 700;
+    position: relative;
+  }
+  .cell.today::after {
+    content: "";
+    position: absolute;
+    bottom: 3px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+  .cell.today.filled::after {
+    background: rgba(255,255,255,0.85);
+  }
+  .cell.empty-pad {
+    background: transparent;
+    cursor: default;
+  }
+  .cell.empty-pad:hover { transform: none; }
+
+  /* Progress */
+  .progress-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 4px;
+  }
+  .progress-label {
+    font-size: 12px;
+    color: var(--ink-soft);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .progress-track {
+    flex: 1;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--track);
+    overflow: hidden;
+    position: relative;
+  }
+  .progress-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: var(--accent);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 85%, white 15%), var(--accent));
+    box-shadow: 0 0 6px 0 color-mix(in srgb, var(--accent) 50%, transparent);
+    transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    width: 0%;
+  }
+  .progress-pct {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+    min-width: 32px;
+    text-align: right;
+  }
+
+  .sub-row {
+    font-size: 11px;
+    color: var(--ink-soft);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .status {
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+  .status.show { opacity: 1; }
+
+  /* Settings panel */
+  .overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(20, 19, 18, 0.35);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s ease;
+    z-index: 10;
+  }
+  .overlay.open { opacity: 1; pointer-events: auto; }
+
+  .panel {
+    background: #FAFAF8;
+    border-radius: 14px;
+    padding: 20px 22px;
+    width: min(300px, 86vw);
+    box-shadow: 0 12px 40px rgba(0,0,0,0.18);
+    transform: translateY(8px) scale(0.98);
+    transition: transform 0.15s ease;
+    color: var(--ink);
+  }
+  .overlay.open .panel { transform: translateY(0) scale(1); }
+
+  .panel h3 {
+    margin: 0 0 14px;
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  .field { margin-bottom: 14px; }
+  .field label {
+    display: block;
+    font-size: 11px;
+    color: var(--ink-soft);
+    margin-bottom: 5px;
+  }
+  .field input[type="text"] {
+    width: 100%;
+    padding: 7px 9px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    font-size: 13px;
+    background: white;
+    color: var(--ink);
+  }
+  .field input[type="text"]:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  .swatches {
+    display: flex;
+    gap: 7px;
+    flex-wrap: wrap;
+  }
+  .swatch {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: transform 0.1s ease;
+  }
+  .swatch:hover { transform: scale(1.1); }
+  .swatch.active { border-color: var(--ink); }
+
+  .color-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .color-row input[type="color"] {
+    width: 30px;
+    height: 30px;
+    border: none;
+    border-radius: 50%;
+    overflow: hidden;
+    padding: 0;
+    cursor: pointer;
+    background: none;
+    flex-shrink: 0;
+  }
+
+  .checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11.5px;
+    color: var(--ink-soft);
+    cursor: pointer;
+  }
+  .checkbox-label input[type="checkbox"] {
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+    accent-color: var(--ink);
+  }
+
+  .field input[type="range"] {
+    width: 100%;
+    accent-color: var(--ink);
+    cursor: pointer;
+  }
+
+  .panel-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 18px;
+  }
+
+  .btn {
+    border: none;
+    border-radius: 7px;
+    padding: 7px 14px;
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .btn-primary {
+    background: var(--ink);
+    color: #FAFAF8;
+  }
+  .btn-text {
+    background: transparent;
+    color: var(--ink-soft);
+    font-weight: 500;
+    padding: 7px 6px;
+  }
+  .btn-text:hover { color: #C0453B; }
+
+  .setup-note {
+    font-size: 10.5px;
+    color: var(--ink-soft);
+    line-height: 1.5;
+    margin-top: 4px;
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="top">
+    <span id="habitName">Loading…</span>
+    <button class="gear" id="gearBtn" aria-label="Settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3"></circle>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+      </svg>
+    </button>
+  </div>
+
+  <div class="month-label" id="monthLabel">—</div>
+
+  <div class="grid" id="calGrid"></div>
+
+  <div class="progress-row">
+    <span class="progress-label">Progress</span>
+    <div class="progress-track">
+      <div class="progress-fill" id="progressFill"></div>
+    </div>
+    <span class="progress-pct" id="progressPct">0%</span>
+  </div>
+
+  <div class="sub-row">
+    <span id="progressFraction">0 / 0 days</span>
+    <span class="status" id="statusMsg"></span>
+  </div>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="panel">
+    <h3>Tracker settings</h3>
+
+    <div class="field">
+      <label for="nameInput">Habit name</label>
+      <input type="text" id="nameInput" maxlength="40" placeholder="e.g. Read 20 minutes">
+    </div>
+
+    <div class="field">
+      <label>Habit color</label>
+      <div class="color-row">
+        <input type="color" id="customColor" value="#2F5D50">
+        <div class="swatches" id="swatches"></div>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Widget background</label>
+      <div class="color-row">
+        <input type="color" id="bgColor" value="#FAFAF8">
+        <label class="checkbox-label">
+          <input type="checkbox" id="bgTransparent">
+          <span>Transparent (blend into Notion)</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="radiusInput">Corner roundness: <span id="radiusValue">16px</span></label>
+      <input type="range" id="radiusInput" min="0" max="32" value="16">
+    </div>
+
+    <div class="field">
+      <label for="fontUrlInput">Custom font URL (.woff2/.ttf/.otf)</label>
+      <input type="text" id="fontUrlInput" placeholder="https://example.com/MyFont.woff2">
+    </div>
+
+    <div class="field" id="setupNoteWrap" style="display:none;">
+      <label>Connection</label>
+      <div class="setup-note" id="setupNote"></div>
+    </div>
+
+    <div class="panel-actions">
+      <button class="btn btn-text" id="resetBtn">Reset this month</button>
+      <button class="btn btn-primary" id="saveBtn">Save</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+/* ===================== CONFIGURE THIS ===================== */
+const SUPABASE_URL = "https://jbffyatjyxzonlzvmxhe.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpiZmZ5YXRqeXh6b25senZteGhlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTE2NDMsImV4cCI6MjA5NzQ2NzY0M30.gN7lUBS8SUGz_nJD2DMC6mTaXqei7Kb_AlHD9lzQN0c";
+const TRACKER_ID = "default"; // change if you ever want multiple trackers from one project
+/* ============================================================= */
+
+const PRESET_COLORS = ["#2F5D50", "#C0453B", "#3D5A99", "#B07D2B", "#7A4FA0", "#4A4A4A"];
+
+let db = null;
+let configured = false;
+let state = {
+  name: "My habit",
+  color: PRESET_COLORS[0],
+  bgColor: "#FAFAF8",
+  bgTransparent: true,
+  radius: 16,
+  fontUrl: "",
+  checkins: {} // "YYYY-MM-DD": true, across all months ever recorded
+};
+
+function pad(n) { return n < 10 ? "0" + n : "" + n; }
+function fmt(y, m, d) { return `${y}-${pad(m + 1)}-${pad(d)}`; }
+function todayParts() {
+  const t = new Date();
+  return { y: t.getFullYear(), m: t.getMonth(), d: t.getDate() };
+}
+
+function initSupabase() {
+  if (SUPABASE_URL === "YOUR_SUPABASE_URL" || SUPABASE_ANON_KEY === "YOUR_SUPABASE_ANON_KEY") {
+    configured = false;
+    return;
+  }
+  try {
+    db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    configured = true;
+  } catch (e) {
+    configured = false;
+  }
+}
+
+async function loadState() {
+  if (!configured) return;
+  const { data, error } = await db
+    .from("habit_trackers")
+    .select("*")
+    .eq("id", TRACKER_ID)
+    .maybeSingle();
+  if (error) { console.error(error); return; }
+  if (data) {
+    state.name = data.name || state.name;
+    state.color = data.color || state.color;
+    state.bgColor = data.bg_color || state.bgColor;
+    state.bgTransparent = data.bg_transparent !== undefined && data.bg_transparent !== null ? data.bg_transparent : state.bgTransparent;
+    state.radius = (data.radius !== undefined && data.radius !== null) ? data.radius : state.radius;
+    state.fontUrl = data.font_url || state.fontUrl;
+    state.checkins = data.checkins || {};
+  } else {
+    await db.from("habit_trackers").insert({
+      id: TRACKER_ID, name: state.name, color: state.color, checkins: {},
+      bg_color: state.bgColor, bg_transparent: state.bgTransparent, radius: state.radius, font_url: state.fontUrl
+    });
+  }
+}
+
+async function saveState(showStatus) {
+  if (!configured) return;
+  const { error } = await db
+    .from("habit_trackers")
+    .upsert({
+      id: TRACKER_ID, name: state.name, color: state.color, checkins: state.checkins,
+      bg_color: state.bgColor, bg_transparent: state.bgTransparent, radius: state.radius, font_url: state.fontUrl
+    });
+  if (showStatus) flashStatus(error ? "couldn't save" : "saved");
+}
+
+function flashStatus(msg) {
+  const el = document.getElementById("statusMsg");
+  el.textContent = msg;
+  el.classList.add("show");
+  setTimeout(() => el.classList.remove("show"), 1400);
+}
+
+function applyTheme() {
+  document.documentElement.style.setProperty("--cell-fill", state.color);
+  document.documentElement.style.setProperty("--accent", state.color);
+  document.documentElement.style.setProperty("--widget-bg", state.bgTransparent ? "transparent" : state.bgColor);
+  document.documentElement.style.setProperty("--widget-radius", state.radius + "px");
+  applyFont();
+}
+
+let injectedFontStyleEl = null;
+function applyFont() {
+  if (!state.fontUrl) {
+    document.documentElement.style.setProperty("--widget-font", "-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif");
+    return;
+  }
+  if (!injectedFontStyleEl) {
+    injectedFontStyleEl = document.createElement("style");
+    document.head.appendChild(injectedFontStyleEl);
+  }
+  injectedFontStyleEl.textContent = `
+    @font-face {
+      font-family: "CustomWidgetFont";
+      src: url("${state.fontUrl}");
+      font-display: swap;
+    }
+  `;
+  document.documentElement.style.setProperty("--widget-font", "'CustomWidgetFont', -apple-system, sans-serif");
+}
+
+function daysInMonth(y, m) {
+  return new Date(y, m + 1, 0).getDate();
+}
+
+function render() {
+  document.getElementById("habitName").textContent = state.name;
+  applyTheme();
+  renderMonth();
+}
+
+function renderMonth() {
+  const { y, m, d: todayDate } = todayParts();
+  const totalDays = daysInMonth(y, m);
+  const firstWeekday = new Date(y, m, 1).getDay(); // 0 = Sun
+
+  document.getElementById("monthLabel").textContent =
+    new Date(y, m, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+
+  const gridEl = document.getElementById("calGrid");
+  gridEl.innerHTML = "";
+
+  // leading pad cells so day 1 lands on the correct weekday column
+  for (let i = 0; i < firstWeekday; i++) {
+    const pad = document.createElement("div");
+    pad.className = "cell empty-pad";
+    gridEl.appendChild(pad);
+  }
+
+  let completed = 0;
+  for (let day = 1; day <= totalDays; day++) {
+    const key = fmt(y, m, day);
+    const isDone = !!state.checkins[key];
+    const isToday = day === todayDate;
+    if (isDone) completed++;
+
+    const cell = document.createElement("div");
+    cell.className = "cell" + (isDone ? " filled" : "") + (isToday ? " today" : "");
+    cell.textContent = day;
+    cell.title = new Date(y, m, day).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+    cell.addEventListener("click", () => toggleDay(key));
+    gridEl.appendChild(cell);
+  }
+
+  const pct = totalDays > 0 ? Math.round((completed / totalDays) * 100) : 0;
+  document.getElementById("progressFill").style.width = pct + "%";
+  document.getElementById("progressPct").textContent = pct + "%";
+  document.getElementById("progressFraction").textContent = `${completed} / ${totalDays} days`;
+}
+
+async function toggleDay(key) {
+  if (state.checkins[key]) {
+    delete state.checkins[key];
+  } else {
+    state.checkins[key] = true;
+  }
+  render();
+  await saveState(true);
+}
+
+/* ---------- Settings panel ---------- */
+const overlay = document.getElementById("overlay");
+const gearBtn = document.getElementById("gearBtn");
+const nameInput = document.getElementById("nameInput");
+const customColor = document.getElementById("customColor");
+const swatchesEl = document.getElementById("swatches");
+const bgColorInput = document.getElementById("bgColor");
+const bgTransparentInput = document.getElementById("bgTransparent");
+const radiusInput = document.getElementById("radiusInput");
+const radiusValueEl = document.getElementById("radiusValue");
+const fontUrlInput = document.getElementById("fontUrlInput");
+const setupNoteWrap = document.getElementById("setupNoteWrap");
+const setupNote = document.getElementById("setupNote");
+
+radiusInput.addEventListener("input", () => {
+  radiusValueEl.textContent = radiusInput.value + "px";
+});
+bgTransparentInput.addEventListener("change", () => {
+  bgColorInput.disabled = bgTransparentInput.checked;
+  bgColorInput.style.opacity = bgTransparentInput.checked ? 0.4 : 1;
+});
+
+function buildSwatches() {
+  swatchesEl.innerHTML = "";
+  PRESET_COLORS.forEach(c => {
+    const s = document.createElement("div");
+    s.className = "swatch" + (c.toLowerCase() === state.color.toLowerCase() ? " active" : "");
+    s.style.background = c;
+    s.dataset.color = c;
+    s.addEventListener("click", () => {
+      [...swatchesEl.children].forEach(x => x.classList.remove("active"));
+      s.classList.add("active");
+      customColor.value = c;
+    });
+    swatchesEl.appendChild(s);
+  });
+}
+
+function openPanel() {
+  nameInput.value = state.name;
+  customColor.value = state.color;
+  bgColorInput.value = state.bgColor;
+  bgTransparentInput.checked = state.bgTransparent;
+  bgColorInput.disabled = state.bgTransparent;
+  bgColorInput.style.opacity = state.bgTransparent ? 0.4 : 1;
+  radiusInput.value = state.radius;
+  radiusValueEl.textContent = state.radius + "px";
+  fontUrlInput.value = state.fontUrl;
+  buildSwatches();
+  if (!configured) {
+    setupNoteWrap.style.display = "block";
+    setupNote.textContent = "Not connected to a database yet — edits here won't be saved.";
+  } else {
+    setupNoteWrap.style.display = "none";
+  }
+  overlay.classList.add("open");
+}
+function closePanel() { overlay.classList.remove("open"); }
+
+gearBtn.addEventListener("click", openPanel);
+overlay.addEventListener("click", (e) => { if (e.target === overlay) closePanel(); });
+
+document.getElementById("saveBtn").addEventListener("click", async () => {
+  state.name = nameInput.value.trim() || state.name;
+  state.color = customColor.value;
+  state.bgColor = bgColorInput.value;
+  state.bgTransparent = bgTransparentInput.checked;
+  state.radius = parseInt(radiusInput.value, 10);
+  state.fontUrl = fontUrlInput.value.trim();
+  render();
+  closePanel();
+  await saveState(true);
+});
+
+document.getElementById("resetBtn").addEventListener("click", async () => {
+  if (!confirm("Clear check-ins for this month? This can't be undone.")) return;
+  const { y, m } = todayParts();
+  const prefix = `${y}-${pad(m + 1)}-`;
+  Object.keys(state.checkins).forEach(k => {
+    if (k.startsWith(prefix)) delete state.checkins[k];
+  });
+  render();
+  closePanel();
+  await saveState(true);
+});
+
+/* ---------- Boot ---------- */
+(async function boot() {
+  initSupabase();
+  await loadState();
+  render();
+})();
+</script>
+</body>
+</html>
