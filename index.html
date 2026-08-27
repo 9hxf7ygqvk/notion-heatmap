@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Focus Heatmap</title>
+<style>
+  :root{
+    --accent:#34c759;
+    --accent-rgb:52,199,89;
+    --panel-bg:#15181d;
+    --empty-cell:#252a30;
+    --text:#f5f5f7;
+    --font:"Lyon Text","Iowan Old Style","Palatino Linotype","Book Antiqua",Palatino,Georgia,serif;
+    --line:rgba(255,255,255,.09);
+    --title-boost:0px;
+    --stats-boost:0px;
+    --info-boost:0px;
+    --labels-boost:0px;
+  }
+  *{box-sizing:border-box}
+  html,body{
+    margin:0;
+    width:100%;
+    height:100%;
+    min-height:0;
+    background:transparent !important;
+    color:var(--text);
+    font-family:var(--font);
+  }
+  body{padding:0;overflow:hidden}
+  .app{
+    width:100%;
+    height:100%;
+    max-width:none;
+    margin:0;
+    background:var(--panel-bg);
+    border:1px solid var(--line);
+    border-radius:clamp(14px,2.2vw,24px);
+    padding:clamp(12px,2.2vw,22px);
+    overflow:hidden;
+    display:flex;
+    flex-direction:column;
+    min-height:0;
+  }
+  .top{display:flex;justify-content:space-between;gap:clamp(10px,2vw,18px);align-items:flex-start}
+  .title-row{display:flex;align-items:center;gap:9px}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--accent);box-shadow:0 0 16px rgba(var(--accent-rgb),.52);flex:0 0 auto}
+  h1{font-size:calc(clamp(15px,2.1vw,20px) + var(--title-boost));line-height:1.1;margin:0;font-weight:700;letter-spacing:-.025em;color:var(--text)}
+  .sub{font-size:calc(clamp(9px,1.25vw,12px) + var(--info-boost));color:var(--text);opacity:1;margin-top:6px}
+  .stats{display:flex;gap:clamp(10px,2.2vw,24px);align-items:flex-start}
+  .stat{text-align:right}
+  .stat b{display:block;font-size:calc(clamp(17px,2.5vw,23px) + var(--stats-boost));line-height:1;font-weight:750;letter-spacing:-.03em;color:var(--text)}
+  .stat span{display:block;color:var(--text);opacity:1;font-size:calc(clamp(8px,1.05vw,11px) + var(--labels-boost));margin-top:5px}
+  button,input,select{font:inherit}
+  .gear{
+    border:1px solid var(--line);
+    background:rgba(255,255,255,.055);
+    color:var(--text);
+    width:clamp(30px,4vw,34px);
+    height:clamp(30px,4vw,34px);
+    border-radius:11px;
+    cursor:pointer;
+    font-size:16px;
+    flex:0 0 auto;
+  }
+  .toolbar{
+    display:flex;
+    justify-content:space-between;
+    gap:12px;
+    align-items:center;
+    margin:clamp(15px,2.2vw,20px) 0 10px;
+  }
+  .year{font-size:calc(clamp(10px,1.35vw,13px) + var(--info-boost));font-weight:650;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .hint{font-size:calc(clamp(8px,1.15vw,11px) + var(--info-boost));color:var(--text);opacity:1;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .heat-wrap{width:100%;overflow:hidden;flex:1;min-height:0}
+  .heatmap{width:100%;min-width:0}
+  .months{
+    margin-left:clamp(25px,4vw,34px);
+    display:grid;
+    grid-template-columns:repeat(12,1fr);
+    align-items:center;
+    gap:0;
+    height:20px;
+    color:var(--text);
+    opacity:.52;
+    font-size:calc(clamp(7px,1vw,10px) + var(--labels-boost));
+  }
+  .month{text-align:left;white-space:nowrap;overflow:hidden}
+  .grid-row{
+    display:grid;
+    grid-template-columns:clamp(22px,3.6vw,28px) minmax(0,1fr);
+    gap:clamp(4px,.8vw,8px);
+    width:100%;
+    align-items:stretch;
+  }
+  .days{
+    display:grid;
+    grid-template-rows:repeat(7,1fr);
+    gap:clamp(2px,.35vw,4px);
+    min-width:0;
+  }
+  .days span{
+    font-size:calc(clamp(7px,.9vw,9px) + var(--labels-boost));
+    color:var(--text);
+    opacity:.46;
+    display:flex;
+    align-items:center;
+    line-height:1;
+  }
+  .weeks{
+    display:grid;
+    grid-template-columns:repeat(53,minmax(0,1fr));
+    grid-template-rows:repeat(7,minmax(0,1fr));
+    grid-auto-flow:column;
+    gap:clamp(2px,.35vw,4px);
+    width:100%;
+    min-width:0;
+  }
+  .cell{
+    width:100%;
+    aspect-ratio:1/1;
+    min-width:0;
+    min-height:0;
+    border-radius:clamp(2px,.45vw,4px);
+    background:var(--empty-cell);
+    border:1px solid rgba(255,255,255,.025);
+    cursor:pointer;
+    transition:transform .12s ease,filter .12s ease,background .15s ease;
+    position:relative;
+  }
+  .cell:hover{transform:scale(1.28);z-index:2;filter:brightness(1.15)}
+  .cell[data-level="1"]{background:rgba(var(--accent-rgb),.25)}
+  .cell[data-level="2"]{background:rgba(var(--accent-rgb),.48)}
+  .cell[data-level="3"]{background:rgba(var(--accent-rgb),.72)}
+  .cell[data-level="4"]{background:rgba(var(--accent-rgb),1);box-shadow:0 0 7px rgba(var(--accent-rgb),.15)}
+  .legend{
+    display:flex;align-items:center;gap:clamp(4px,.7vw,7px);
+    color:var(--text);opacity:1;font-size:calc(clamp(8px,1vw,10px) + var(--labels-boost));
+    margin-top:clamp(9px,1.5vw,13px);justify-content:flex-end
+  }
+  .legend .cell{width:clamp(9px,1.3vw,13px);flex:0 0 auto;cursor:default}
+  .legend .cell:hover{transform:none;filter:none}
+  .legend .cell[data-level="0"]{background:var(--empty-cell)}
+
+  .modal-back{
+    position:fixed;inset:0;background:rgba(0,0,0,.46);
+    backdrop-filter:blur(8px);display:none;align-items:center;justify-content:center;
+    padding:16px;z-index:10
+  }
+  .modal{
+    width:min(440px,100%);max-height:92vh;overflow:auto;
+    background:#171a1f;border:1px solid rgba(255,255,255,.1);
+    border-radius:22px;padding:20px;box-shadow:0 24px 80px rgba(0,0,0,.5);
+    color:#f5f5f7;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif
+  }
+  .modal h2{font-size:17px;margin:0 0 16px}
+  .field{margin:13px 0}
+  .field label{display:block;font-size:10px;color:#9fa3aa;margin-bottom:7px;letter-spacing:.04em}
+  input[type=text],select{
+    width:100%;background:#0f1114;border:1px solid rgba(255,255,255,.09);
+    color:#f5f5f7;border-radius:11px;padding:10px 11px;outline:none
+  }
+  .color-row{display:flex;gap:9px;align-items:center}
+  input[type=color]{
+    width:34px;
+    height:34px;
+    padding:0;
+    border:1px solid rgba(255,255,255,.14);
+    border-radius:50%;
+    background:transparent;
+    cursor:pointer;
+    flex:0 0 auto;
+    overflow:hidden;
+    appearance:none;
+    -webkit-appearance:none;
+  }
+  input[type=color]::-webkit-color-swatch-wrapper{
+    padding:0;
+    border-radius:50%;
+  }
+  input[type=color]::-webkit-color-swatch{
+    border:none;
+    border-radius:50%;
+  }
+  input[type=color]::-moz-color-swatch{
+    border:none;
+    border-radius:50%;
+  }
+  .helper{font-size:10px;color:#969ba3;line-height:1.35}
+  .size-control{margin-top:10px}
+  .size-row{display:grid;grid-template-columns:92px minmax(0,1fr) 34px;gap:10px;align-items:center;margin:9px 0}
+  .size-name{font-size:11px;color:#d8dbe0}
+  .size-value{font-size:10px;color:#9fa3aa;text-align:right;font-variant-numeric:tabular-nums}
+  input[type=range]{
+    width:100%;
+    accent-color:var(--accent);
+    cursor:pointer;
+  }
+  .actions{display:flex;gap:8px;margin-top:18px}
+  .action{
+    flex:1;border:1px solid rgba(255,255,255,.09);background:#22262c;color:#e9ebef;
+    border-radius:11px;padding:10px;cursor:pointer;font-weight:600;font-size:12px
+  }
+  .action.primary{background:var(--accent);color:#071108;border-color:transparent}
+  .action.danger{color:#ff7474}
+
+
+  .landscape-heatmap{display:block}
+  .portrait-heatmap{display:none}
+
+  /* Portrait mode keeps V8's rounded-square pixels, but turns the calendar
+     into 12 month columns × 31 day rows, like a Year-in-Pixels layout. */
+  .portrait-heatmap{
+    width:100%;
+    height:100%;
+    min-width:0;
+    min-height:0;
+    flex-direction:column;
+    --portrait-cell:10px;
+  }
+
+  .portrait-months{
+    display:grid;
+    grid-template-columns:clamp(22px,7%,34px) repeat(12,minmax(0,1fr));
+    align-items:center;
+    flex:0 0 auto;
+    padding-bottom:clamp(7px,1.3vh,12px);
+    min-width:0;
+  }
+
+  .portrait-month-label{
+    text-align:center;
+    color:var(--text);
+    opacity:.62;
+    font-size:calc(clamp(7px,2.2vw,11px) + var(--labels-boost));
+    line-height:1;
+    white-space:nowrap;
+    overflow:hidden;
+  }
+
+  .portrait-grid{
+    display:grid;
+    grid-template-columns:clamp(22px,7%,34px) repeat(12,minmax(0,1fr));
+    grid-template-rows:repeat(31,minmax(0,1fr));
+    flex:1;
+    width:100%;
+    min-width:0;
+    min-height:0;
+  }
+
+  .portrait-day{
+    display:flex;
+    align-items:center;
+    justify-content:flex-end;
+    padding-right:clamp(4px,1.2vw,8px);
+    color:var(--text);
+    opacity:.52;
+    font-size:calc(clamp(7px,2vw,10px) + var(--labels-boost));
+    line-height:1;
+    min-width:0;
+    min-height:0;
+  }
+
+  .portrait-slot{
+    display:grid;
+    place-items:center;
+    min-width:0;
+    min-height:0;
+    overflow:visible;
+  }
+
+  .portrait-cell{
+    width:var(--portrait-cell);
+    height:var(--portrait-cell);
+    max-width:82%;
+    max-height:82%;
+    min-width:2px;
+    min-height:2px;
+    padding:0;
+    border:1px solid rgba(255,255,255,.025);
+    border-radius:clamp(2px,.65vw,5px);
+    background:var(--empty-cell);
+    cursor:pointer;
+    transition:transform .12s ease,filter .12s ease,background .15s ease;
+  }
+
+  .portrait-cell[data-level="1"]{background:rgba(var(--accent-rgb),.25)}
+  .portrait-cell[data-level="2"]{background:rgba(var(--accent-rgb),.48)}
+  .portrait-cell[data-level="3"]{background:rgba(var(--accent-rgb),.72)}
+  .portrait-cell[data-level="4"]{background:rgba(var(--accent-rgb),1)}
+  .portrait-cell.invalid{visibility:hidden;pointer-events:none}
+
+  @media (hover:hover) and (pointer:fine){
+    .portrait-cell:hover{transform:scale(1.2);z-index:2;filter:brightness(1.15)}
+  }
+
+  /* The layout changes only when the embed itself becomes portrait-shaped.
+     Wide blocks remain exactly like V8. */
+  @media (max-aspect-ratio: 1/1){
+    .landscape-heatmap{display:none}
+    .portrait-heatmap{display:flex}
+    .heat-wrap{display:flex;align-items:stretch}
+    .toolbar{margin-top:clamp(10px,1.8vh,18px);margin-bottom:clamp(8px,1.4vh,13px)}
+    .legend{margin-top:clamp(8px,1.4vh,13px);flex:0 0 auto}
+  }
+
+  @media (max-width:380px) and (max-aspect-ratio: 1/1){
+    .app{padding:clamp(10px,3.2vw,14px)}
+    .top{gap:8px}
+    .sub{display:none}
+    .stats{gap:8px}
+    .stat b{font-size:16px}
+    .stat span{font-size:8px}
+    .gear{width:29px;height:29px}
+    .hint{max-width:54%}
+    .portrait-months,
+    .portrait-grid{
+      grid-template-columns:20px repeat(12,minmax(0,1fr));
+    }
+    .portrait-day{padding-right:3px}
+  }
+
+
+  @media(max-width:620px){
+    .app{border-radius:15px}
+    .sub{display:none}
+    .stats{gap:8px}
+    .toolbar{margin-top:13px}
+    .hint{max-width:52%}
+  }
+  @media(max-width:400px){
+    .days span:nth-child(even){visibility:hidden}
+    .month:nth-child(even){visibility:hidden}
+    .stats .stat:first-child{display:none}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="top">
+    <div>
+      <div class="title-row"><span class="dot"></span><h1 id="title">Focus</h1></div>
+      <div class="sub">Tap a day to cycle through activity levels</div>
+    </div>
+    <div style="display:flex;gap:clamp(8px,1.6vw,14px);align-items:flex-start">
+      <div class="stats">
+        <div class="stat"><b id="total">0</b><span>Total</span></div>
+        <div class="stat"><b id="best">0</b><span>Best</span></div>
+      </div>
+      <button class="gear" id="settingsBtn" aria-label="Settings">⚙︎</button>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <div class="year" id="range"></div>
+    <div class="hint" id="hintText"></div>
+  </div>
+
+  <div class="heat-wrap">
+    <div class="heatmap landscape-heatmap">
+      <div class="months" id="months"></div>
+      <div class="grid-row">
+        <div class="days">
+          <span></span><span>Mon</span><span></span><span>Wed</span><span></span><span>Fri</span><span></span>
+        </div>
+        <div class="weeks" id="weeks"></div>
+      </div>
+    </div>
+
+    <div class="portrait-heatmap" id="portraitHeatmap" aria-label="Portrait yearly heatmap">
+      <div class="portrait-months" id="portraitMonths"></div>
+      <div class="portrait-grid" id="portraitGrid"></div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span>Less</span><span class="cell" data-level="0"></span><span class="cell" data-level="1"></span><span class="cell" data-level="2"></span><span class="cell" data-level="3"></span><span class="cell" data-level="4"></span><span>More</span>
+  </div>
+</div>
+
+<div class="modal-back" id="modalBack">
+  <div class="modal">
+    <h2>Heatmap settings</h2>
+
+    <div class="field">
+      <label>TRACKING NAME</label>
+      <input id="titleInput" type="text" maxlength="30" placeholder="Focus">
+    </div>
+
+    <div class="field">
+      <label>YEAR / RANGE TEXT</label>
+      <input id="rangeInput" type="text" maxlength="40" placeholder="2027">
+      <div class="helper" style="margin-top:6px">The first 4-digit year here controls the heatmap dates and hover dates.</div>
+    </div>
+
+    <div class="field">
+      <label>DESCRIPTION TEXT</label>
+      <input id="hintInput" type="text" maxlength="90" placeholder="January — December · 0 = none · 4 = maximum">
+    </div>
+
+    <div class="field">
+      <label>TEXT SIZE</label>
+      <div class="helper">Increase selected text slightly without changing the overall layout.</div>
+      <div class="size-control">
+        <div class="size-row">
+          <span class="size-name">Title</span>
+          <input id="titleSize" type="range" min="0" max="4" step="1" value="0">
+          <span class="size-value" id="titleSizeValue">+0 px</span>
+        </div>
+        <div class="size-row">
+          <span class="size-name">Statistics</span>
+          <input id="statsSize" type="range" min="0" max="3" step="1" value="0">
+          <span class="size-value" id="statsSizeValue">+0 px</span>
+        </div>
+        <div class="size-row">
+          <span class="size-name">Info text</span>
+          <input id="infoSize" type="range" min="0" max="3" step="1" value="0">
+          <span class="size-value" id="infoSizeValue">+0 px</span>
+        </div>
+        <div class="size-row">
+          <span class="size-name">Labels</span>
+          <input id="labelsSize" type="range" min="0" max="2" step="1" value="0">
+          <span class="size-value" id="labelsSizeValue">+0 px</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>TEXT COLOR</label>
+      <div class="color-row">
+        <input id="textColor" type="color" value="#f5f5f7">
+        <span class="helper">Changes the widget's title, labels, stats, months, and other text.</span>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>WIDGET BACKGROUND</label>
+      <div class="color-row">
+        <input id="panelColor" type="color" value="#15181d">
+        <span class="helper">Changes the rounded card that all of the widget content sits on. The area outside it stays transparent.</span>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>HEATMAP COLOR</label>
+      <div class="color-row">
+        <input id="customAccent" type="color" value="#34c759">
+        <span class="helper">Choose any custom color for the activity levels.</span>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>EMPTY DAY COLOR</label>
+      <div class="color-row">
+        <input id="customCell" type="color" value="#252a30">
+        <span class="helper">Changes the color of unmarked days.</span>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="action danger" id="resetBtn">Reset data</button>
+      <button class="action" id="closeBtn">Close</button>
+      <button class="action primary" id="doneBtn">Done</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const KEY = "notionHeatmap_v1";
+  const defaultFont='"Lyon Text","Iowan Old Style","Palatino Linotype","Book Antiqua",Palatino,Georgia,serif';
+
+  let state = JSON.parse(localStorage.getItem(KEY) || "null") || {
+    title:"Focus",
+    color:["#34c759","52,199,89"],
+    panelBg:"#15181d",
+    cell:"#252a30",
+    textColor:"#f5f5f7",
+    font:defaultFont,
+    titleSize:0,
+    statsSize:0,
+    infoSize:0,
+    labelsSize:0,
+    rangeText:String(new Date().getFullYear()),
+    hintText:"January — December · 0 = none · 4 = maximum",
+    data:{}
+  };
+
+  // Migrate older widget versions without losing tracking data.
+  state.title = state.title || "Focus";
+  state.color = state.color || ["#34c759","52,199,89"];
+  state.panelBg = state.panelBg || state.bg || "#15181d";
+  state.cell = state.cell || "#252a30";
+  state.textColor = state.textColor || "#f5f5f7";
+  state.font = defaultFont;
+  state.titleSize = Number.isFinite(Number(state.titleSize)) ? Math.min(4,Math.max(0,Number(state.titleSize))) : 0;
+  state.statsSize = Number.isFinite(Number(state.statsSize)) ? Math.min(3,Math.max(0,Number(state.statsSize))) : 0;
+  state.infoSize = Number.isFinite(Number(state.infoSize)) ? Math.min(3,Math.max(0,Number(state.infoSize))) : 0;
+  state.labelsSize = Number.isFinite(Number(state.labelsSize)) ? Math.min(2,Math.max(0,Number(state.labelsSize))) : 0;
+  state.rangeText = state.rangeText || String(new Date().getFullYear());
+  state.hintText = state.hintText || "January — December · 0 = none · 4 = maximum";
+  state.data = state.data || {};
+
+  const $ = id => document.getElementById(id);
+  const save = () => localStorage.setItem(KEY, JSON.stringify(state));
+  const pad = n => String(n).padStart(2,"0");
+  const iso = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  const startOfWeek = d => {
+    const x=new Date(d);
+    const day=x.getDay();
+    const diff=day===0?-6:1-day;
+    x.setDate(x.getDate()+diff);
+    x.setHours(0,0,0,0);
+    return x;
+  };
+  const daysBetween=(a,b)=>Math.round((b-a)/86400000);
+
+  function getTrackingYear(){
+    const text=String(state.rangeText || "");
+    const match=text.match(/\b(19|20|21)\d{2}\b/);
+    if(match){
+      const parsed=Number(match[0]);
+      if(parsed>=1900 && parsed<=2199) return parsed;
+    }
+    return new Date().getFullYear();
+  }
+
+  function dateRange(){
+    const year=getTrackingYear();
+    const jan1=new Date(year,0,1); jan1.setHours(0,0,0,0);
+    const dec31=new Date(year,11,31); dec31.setHours(0,0,0,0);
+    return {year, calendarStart:jan1, calendarEnd:dec31, start:startOfWeek(jan1)};
+  }
+
+  function render(){
+    document.documentElement.style.setProperty("--accent",state.color[0]);
+    document.documentElement.style.setProperty("--accent-rgb",state.color[1]);
+    document.documentElement.style.setProperty("--panel-bg",state.panelBg);
+    document.documentElement.style.setProperty("--empty-cell",state.cell);
+    document.documentElement.style.setProperty("--text",state.textColor);
+    document.documentElement.style.setProperty("--font",state.font);
+    document.documentElement.style.setProperty("--title-boost",state.titleSize+"px");
+    document.documentElement.style.setProperty("--stats-boost",state.statsSize+"px");
+    document.documentElement.style.setProperty("--info-boost",state.infoSize+"px");
+    document.documentElement.style.setProperty("--labels-boost",state.labelsSize+"px");
+
+    $("title").textContent=state.title;
+    $("range").textContent=state.rangeText;
+    $("hintText").textContent=state.hintText;
+
+    const {calendarStart,calendarEnd,start}=dateRange();
+    const weeks=$("weeks"); weeks.innerHTML="";
+    const months=$("months"); months.innerHTML="";
+
+    ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"].forEach(m=>{
+      const el=document.createElement("span");
+      el.className="month";
+      el.textContent=m;
+      months.appendChild(el);
+    });
+
+    // Portrait calendar: months across the top, dates 1-31 down the side.
+    // It uses the same state.data as the normal V8 heatmap.
+    const portraitMonths=$("portraitMonths");
+    const portraitGrid=$("portraitGrid");
+    portraitMonths.innerHTML="";
+    portraitGrid.innerHTML="";
+
+    const portraitSpacer=document.createElement("span");
+    portraitSpacer.setAttribute("aria-hidden","true");
+    portraitMonths.appendChild(portraitSpacer);
+
+    ["J","F","M","A","M","J","J","A","S","O","N","D"].forEach(month=>{
+      const label=document.createElement("span");
+      label.className="portrait-month-label";
+      label.textContent=month;
+      portraitMonths.appendChild(label);
+    });
+
+    const trackingYear=getTrackingYear();
+
+    for(let day=1; day<=31; day++){
+      const dayLabel=document.createElement("span");
+      dayLabel.className="portrait-day";
+      dayLabel.textContent=day;
+      portraitGrid.appendChild(dayLabel);
+
+      for(let month=0; month<12; month++){
+        const slot=document.createElement("div");
+        slot.className="portrait-slot";
+
+        const d=new Date(trackingYear,month,day);
+        const valid=
+          d.getFullYear()===trackingYear &&
+          d.getMonth()===month &&
+          d.getDate()===day;
+
+        const cell=document.createElement("button");
+        cell.type="button";
+        cell.className="portrait-cell";
+
+        if(!valid){
+          cell.classList.add("invalid");
+          cell.disabled=true;
+          cell.setAttribute("aria-hidden","true");
+        } else {
+          const key=iso(d);
+          const level=state.data[key] || 0;
+          cell.dataset.level=level;
+
+          const dateLabel=d.toLocaleDateString(undefined,{
+            month:"short",day:"numeric",year:"numeric"
+          });
+          cell.title=`${dateLabel} · Level ${level}`;
+          cell.setAttribute("aria-label",`${dateLabel}, level ${level}`);
+
+          cell.addEventListener("click",()=>{
+            const next=((state.data[key]||0)+1)%5;
+            if(next===0) delete state.data[key];
+            else state.data[key]=next;
+            save();
+            render();
+          });
+        }
+
+        slot.appendChild(cell);
+        portraitGrid.appendChild(slot);
+      }
+    }
+
+    fitPortraitCells();
+
+    // Always render 53 week columns so the grid scales smoothly to the embed width.
+    let cursor=new Date(start);
+    for(let w=0;w<53;w++){
+      for(let row=0;row<7;row++){
+        const d=new Date(cursor);
+        d.setDate(cursor.getDate()+row);
+        const cell=document.createElement("div");
+        cell.className="cell";
+        const key=iso(d);
+        const level=state.data[key] || 0;
+        cell.dataset.level=level;
+        cell.title=`${d.toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"})} · Level ${level}`;
+
+        if(d < calendarStart || d > calendarEnd){
+          cell.style.visibility="hidden";
+          cell.style.pointerEvents="none";
+        } else {
+          cell.addEventListener("click",()=>{
+            const next=((state.data[key]||0)+1)%5;
+            if(next===0) delete state.data[key];
+            else state.data[key]=next;
+            save();
+            render();
+          });
+        }
+        weeks.appendChild(cell);
+      }
+      cursor.setDate(cursor.getDate()+7);
+    }
+    updateStats();
+  }
+
+
+  let portraitFitFrame=0;
+  function fitPortraitCells(){
+    cancelAnimationFrame(portraitFitFrame);
+    portraitFitFrame=requestAnimationFrame(()=>{
+      const portrait=$("portraitHeatmap");
+      if(!portrait || getComputedStyle(portrait).display==="none") return;
+
+      const slot=portrait.querySelector(".portrait-slot");
+      if(!slot) return;
+
+      const rect=slot.getBoundingClientRect();
+      if(rect.width<=0 || rect.height<=0) return;
+
+      // Keep every pixel square. Extra portrait height becomes tasteful spacing
+      // between rows instead of stretching the pixels into rectangles.
+      const size=Math.max(2,Math.min(rect.width,rect.height)*0.72);
+      portrait.style.setProperty("--portrait-cell",size+"px");
+    });
+  }
+
+  function updateStats(){
+    const trackingYear=getTrackingYear();
+    const yearPrefix=trackingYear+"-";
+    const yearEntries=Object.entries(state.data).filter(([k,v])=>k.startsWith(yearPrefix) && v>0);
+    const values=yearEntries.map(([,v])=>v);
+    $("total").textContent=values.reduce((a,b)=>a+b,0);
+
+    const active=new Set(yearEntries.map(([k])=>k));
+    const now=new Date(); now.setHours(0,0,0,0);
+    let run=0;
+
+    // Only show a live "current streak" when viewing the actual current year.
+    if(trackingYear===now.getFullYear()){
+      let d=new Date(now);
+      if(!active.has(iso(d))) d.setDate(d.getDate()-1);
+      while(active.has(iso(d))){
+        run++;
+        d.setDate(d.getDate()-1);
+      }
+    }
+
+    let best=run, r=0, prev=null;
+    const keys=[...active].sort();
+    for(const k of keys){
+      const cur=new Date(k+"T00:00:00");
+      if(prev && daysBetween(prev,cur)===1) r++;
+      else r=1;
+      best=Math.max(best,r);
+      prev=cur;
+    }
+    $("best").textContent=best;
+  }
+
+  function hexToRgbString(hex){
+    const h=hex.replace("#","");
+    const n=parseInt(h,16);
+    return `${(n>>16)&255},${(n>>8)&255},${n&255}`;
+  }
+
+
+  function openSettings(){
+    $("titleInput").value=state.title;
+    $("rangeInput").value=state.rangeText;
+    $("hintInput").value=state.hintText;
+    $("customAccent").value=state.color[0];
+    $("panelColor").value=state.panelBg;
+    $("customCell").value=state.cell;
+    $("textColor").value=state.textColor;
+    $("titleSize").value=state.titleSize;
+    $("statsSize").value=state.statsSize;
+    $("infoSize").value=state.infoSize;
+    $("labelsSize").value=state.labelsSize;
+    updateSizeReadouts();
+    $("modalBack").style.display="flex";
+  }
+
+  function updateSizeReadouts(){
+    $("titleSizeValue").textContent="+"+state.titleSize+" px";
+    $("statsSizeValue").textContent="+"+state.statsSize+" px";
+    $("infoSizeValue").textContent="+"+state.infoSize+" px";
+    $("labelsSizeValue").textContent="+"+state.labelsSize+" px";
+  }
+
+  function bindSizeControl(id,key){
+    $(id).addEventListener("input",e=>{
+      state[key]=Number(e.target.value);
+      updateSizeReadouts();
+      render();
+    });
+  }
+
+  bindSizeControl("titleSize","titleSize");
+  bindSizeControl("statsSize","statsSize");
+  bindSizeControl("infoSize","infoSize");
+  bindSizeControl("labelsSize","labelsSize");
+
+  $("rangeInput").addEventListener("input",e=>{state.rangeText=e.target.value;render()});
+  $("hintInput").addEventListener("input",e=>{state.hintText=e.target.value;render()});
+  $("titleInput").addEventListener("input",e=>{state.title=e.target.value || "Focus";render()});
+  $("customAccent").addEventListener("input",e=>{state.color=[e.target.value,hexToRgbString(e.target.value)];render()});
+  $("panelColor").addEventListener("input",e=>{state.panelBg=e.target.value;render()});
+  $("customCell").addEventListener("input",e=>{state.cell=e.target.value;render()});
+  $("textColor").addEventListener("input",e=>{state.textColor=e.target.value;render()});
+
+  $("settingsBtn").onclick=()=>{disarmReset();openSettings()};
+  $("closeBtn").onclick=()=>{disarmReset();$("modalBack").style.display="none"; render()};
+  $("doneBtn").onclick=()=>{
+    state.title=$("titleInput").value.trim() || "Focus";
+    state.rangeText=$("rangeInput").value.trim() || String(new Date().getFullYear());
+    state.hintText=$("hintInput").value.trim() || "January — December · 0 = none · 4 = maximum";
+    save();
+    render();
+    disarmReset();
+    $("modalBack").style.display="none";
+  };
+  let resetArmed=false;
+  let resetTimer=null;
+
+  function disarmReset(){
+    resetArmed=false;
+    clearTimeout(resetTimer);
+    $("resetBtn").textContent="Reset data";
+  }
+
+  $("resetBtn").onclick=()=>{
+    if(!resetArmed){
+      resetArmed=true;
+      $("resetBtn").textContent="Confirm reset";
+      clearTimeout(resetTimer);
+      resetTimer=setTimeout(disarmReset,4000);
+      return;
+    }
+
+    state.data={};
+    save();
+    render();
+    disarmReset();
+  };
+  $("modalBack").addEventListener("click",e=>{
+    if(e.target===$("modalBack")){
+      disarmReset();
+      $("modalBack").style.display="none";
+    }
+  });
+
+  render();
+
+  if("ResizeObserver" in window){
+    const portraitResizeObserver=new ResizeObserver(()=>fitPortraitCells());
+    portraitResizeObserver.observe(document.querySelector(".app"));
+  } else {
+    window.addEventListener("resize",fitPortraitCells);
+  }
+
+})();
+</script>
+</body>
+</html>
